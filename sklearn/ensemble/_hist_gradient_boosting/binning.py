@@ -301,7 +301,12 @@ class _BinMapper(TransformerMixin, BaseEstimator):
                 # the thresholds *are* the unique categorical values. This will
                 # lead to the correct mapping in transform()
                 thresholds = known_categories[f_idx]
-                n_bins_non_missing[f_idx] = thresholds.shape[0]
+                # Features without any known category (e.g. a categorical
+                # feature with only missing values in the training data) still
+                # get 1 (unused) bin for non-missing values, mirroring the
+                # continuous path where all-missing columns yield empty
+                # thresholds and 1 bin.
+                n_bins_non_missing[f_idx] = max(thresholds.shape[0], 1)
                 self.bin_thresholds_[f_idx] = thresholds
             else:
                 self.bin_thresholds_[f_idx] = non_cat_thresholds[non_cat_idx]

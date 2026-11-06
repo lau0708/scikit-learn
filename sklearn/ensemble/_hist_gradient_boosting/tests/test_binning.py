@@ -469,6 +469,29 @@ def test_categorical_feature(n_bins):
     assert_array_equal(bin_mapper.transform(X), expected_trans)
 
 
+@pytest.mark.parametrize("n_bins", (5, 256))
+def test_categorical_feature_all_missing(n_bins):
+    # Non-regression test for https://github.com/scikit-learn/scikit-learn/issues/35327
+    # A categorical feature whose column contains only missing values must
+    # behave like the continuous path, i.e. yield exactly 1 (unused) bin for
+    # non-missing values, instead of an undocumented 0.
+    X = np.full(shape=(10, 1), fill_value=np.nan, dtype=X_DTYPE)
+    known_categories = [np.arange(0, dtype=X_DTYPE)]
+
+    bin_mapper = _BinMapper(
+        n_bins=n_bins,
+        is_categorical=np.array([True]),
+        known_categories=known_categories,
+    ).fit(X)
+    assert bin_mapper.n_bins_non_missing_[0] == 1
+
+    # Control assertion: non-missing values are mapped to the single (unused)
+    # bin and missing values to the missing-values bin, both before and after
+    # the fix.
+    X_trans = bin_mapper.transform(np.array([[0.0], [np.nan]], dtype=X_DTYPE))
+    assert_array_equal(X_trans, np.array([[0], [n_bins - 1]]))
+
+
 @pytest.mark.parametrize("n_bins", (128, 256))
 def test_categorical_with_numerical_features(n_bins):
     # basic check for binmapper with mixed data
