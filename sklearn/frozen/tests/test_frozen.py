@@ -212,3 +212,23 @@ def test_frozen_params():
     other_est = LocalOutlierFactor()
     frozen.set_params(estimator=other_est)
     assert frozen.get_params() == {"estimator": other_est}
+
+
+def test_frozen_set_params_returns_self():
+    """Check that `FrozenEstimator.set_params` returns `self`.
+
+    Non-regression test for gh-35341: the documented ``est.set_params(...).fit(X, y)``
+    chaining idiom was broken because `FrozenEstimator.set_params` returned `None`.
+    """
+    X, y = make_classification()
+    est = LogisticRegression().fit(X, y)
+    other_est = LogisticRegression(C=0.1).fit(X, y)
+    frozen = FrozenEstimator(est)
+
+    # Control: `BaseEstimator.set_params` returns the estimator itself.
+    assert est.set_params(C=2.0) is est
+
+    # `FrozenEstimator.set_params` documents "Returns self", and the returned object
+    # must be the frozen estimator (and not the inner estimator) for chaining to work.
+    assert frozen.set_params(estimator=other_est) is frozen
+    assert frozen.set_params(estimator=other_est).predict(X).shape == (X.shape[0],)
