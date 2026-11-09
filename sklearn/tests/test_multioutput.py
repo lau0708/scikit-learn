@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from joblib import cpu_count
 
-from sklearn import datasets
+from sklearn import config_context, datasets
 from sklearn.base import ClassifierMixin, clone
 from sklearn.datasets import (
     load_linnerud,
@@ -29,7 +29,7 @@ from sklearn.linear_model import (
     SGDClassifier,
     SGDRegressor,
 )
-from sklearn.metrics import jaccard_score, mean_squared_error
+from sklearn.metrics import accuracy_score, jaccard_score, mean_squared_error
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.multioutput import (
@@ -457,6 +457,58 @@ def test_multi_output_exceptions():
     msg = "Unknown label type"
     with pytest.raises(ValueError, match=msg):
         moc.fit(X, X[:, 1])
+
+
+@pytest.mark.parametrize("multilabel", [False, True])
+def test_multi_output_classifier_score_sample_weight(multilabel):
+    """Check that `MultiOutputClassifier.score` accepts `sample_weight`.
+
+    Non-regression test for gh-XXXXX: `score` overrode `ClassifierMixin.score`
+    without its `sample_weight` parameter, so weighted scoring raised a
+    `TypeError`, while the sibling `MultiOutputRegressor.score` (inherited from
+    `RegressorMixin`) accepted `sample_weight`.
+    """
+    if multilabel:
+        X_, Y_ = make_multilabel_classification(
+            n_samples=100, n_features=10, n_labels=2, n_classes=2, random_state=0
+        )
+    else:
+        X_, Y_ = X, y  # multiclass-multioutput
+
+    moc = MultiOutputClassifier(LogisticRegression(max_iter=1000)).fit(X_, Y_)
+    y_pred = moc.predict(X_)
+    correctly_predicted = np.all(Y_ == y_pred, axis=1)
+    sample_weight = np.where(correctly_predicted, 5.0, 0.1)
+
+    # control: the unweighted score is the subset accuracy, unchanged by the fix
+    unweighted_score = moc.score(X_, Y_)
+    assert unweighted_score == pytest.approx(np.mean(correctly_predicted))
+
+    weighted_score = moc.score(X_, Y_, sample_weight=sample_weight)
+    assert weighted_score == pytest.approx(
+        np.average(correctly_predicted, weights=sample_weight)
+    )
+    # the weights are actually used: they emphasize the correct predictions
+    assert weighted_score > unweighted_score
+
+    if multilabel:
+        # for multilabel-indicator targets, this is `accuracy_score`, i.e. the
+        # same definition of accuracy as for the single-output classifier
+        assert weighted_score == pytest.approx(
+            accuracy_score(Y_, y_pred, sample_weight=sample_weight)
+        )
+
+
+def test_multi_output_classifier_score_request():
+    """Check that a `set_score_request` method is generated for `score`.
+
+    Non-regression test for gh-XXXXX: `score` did not accept `sample_weight`,
+    so metadata routing could not request it either, and
+    `set_score_request(sample_weight=True)` raised an `AttributeError`.
+    """
+    with config_context(enable_metadata_routing=True):
+        moc = MultiOutputClassifier(LogisticRegression())
+        assert moc.set_score_request(sample_weight=True) is moc
 
 
 @pytest.mark.parametrize("response_method", ["predict_proba", "predict"])
